@@ -3,6 +3,7 @@
 #include <IntervalTimer.h>
 #include <Eigen.h>
 #include <Eigen/Dense>
+//#include <SFE_MicroOLED.h>
 #include "ADG726.h"
 #include "CI_Impedance_pins.h"
 #include "CI_Impedance_fsm.h"
@@ -352,9 +353,9 @@ fsmState computeZ(void) {
 //********************************
 // ****** StepStateMachine *******
 
-fsmState stepStateMachine(fsmState stateNext)
+fsmState stepStateMachine(fsmState next_state)
 {
-    switch (stateNext)
+    switch (next_state)
     {
     case statePowerUp:
         return powerUp();

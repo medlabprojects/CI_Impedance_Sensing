@@ -14,4 +14,4 @@ fsmState pulsePositive(void);
 fsmState pulseNegative(void);
 fsmState interPulse(void);
 fsmState computeZ(void);
-fsmState stepStateMachine(void);
+fsmState stepStateMachine(fsmState next_state);
