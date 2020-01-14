@@ -1,3 +1,6 @@
+#include <stdint.h>
+#include <utility>
+#include <array>
 #include <ADC.h>
 #include "RingBuffer.h"
 #include <IntervalTimer.h>
@@ -10,17 +13,25 @@
 
 using namespace Eigen;
 
-ImpedanceSensingPins pins;
+ImpedanceSensingPins pins; // pin mappings
 
-ADG726 mux({ pins.A0, pins.A1, pins.A2, pins.A3, pins.CSA, pins.CSB, pins.WR, pins.EN });
+ADG726 mux(pins.mux_pins); // mux object
+
+using ZPair = std::pair<uint8_t, uint8_t>; // pair of EA contacts (anode, cathode) to use for bipolar impedance measurement
+const std::array<ZPair, 2> zpairs = { {    // array of all pairs to test
+    {pins.EA[2], pins.EA[3]},
+    {pins.EA[3], pins.EA[5]}
+} };
+auto current_zpair = zpairs.begin(); // current pair being tested (iterator -> *current_zpair to access pair)
+//uint8_t zpair_index = 0; // current pair being tested = zpairs[zpair_index]
 
 //const uint8_t size_EA = 3;
 //const uint8_t EA[size_EA] = {sw_EA2, sw_EA3, sw_EA5};
-const uint8_t size_EA = 2;
-const uint8_t EA[size_EA] = { pins.sw_EA2, pins.sw_EA3 };
-uint8_t ch_index = 0;                  // currently selected channels to measure
-uint8_t ch_anode = EA[ch_index];       // anode channel during initial positive pulse
-uint8_t ch_cathode = EA[ch_index + 1]; // cathode channel during inital positive pulse
+//const uint8_t size_EA = 2;
+//const uint8_t EA[size_EA] = { pins.sw_EA2, pins.sw_EA3 };
+//uint8_t ch_index = 0;                  // currently selected channels to measure
+//uint8_t ch_anode = EA[ch_index];       // anode channel during initial positive pulse
+//uint8_t ch_cathode = EA[ch_index + 1]; // cathode channel during inital positive pulse
 
 IntervalTimer timerPulse;
 //const int pulse_time = 100; // [us] time for each current pulse (+/-); total time for biphasic pulse is 2*pulse_time
@@ -73,13 +84,17 @@ fsmState powerUp(void) {
     pins.init();
     mux.init();
     
-    // 
-    attachInterrupt(pins.buttonPin, button_isr, FALLING);
+    // ensure EA is disconnected
+    disableREF200();
+    mux.selectA(pins.EA[0]);
+    mux.selectB(pins.EA[0]);
+    mux.enable();
+   
 
-    // set up ADC
-    pinMode(A0, INPUT);
-    //  pinMode(A10, INPUT); // Diff Channel 0 +
-    //  pinMode(A11, INPUT); // Diff Channel 0 -
+    //attachInterrupt(pins.buttonPin, button_isr, FALLING);
+
+
+    //  setup ADC
     adc->setAveraging(0); // no averaging; take single samples
     adc->setResolution(16); // resolution
     adc->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED_16BITS); // sets ADCK to highest speed within spec for all resolutions
@@ -91,7 +106,7 @@ fsmState powerUp(void) {
                                  //  adc2Voltage = 1.2/32768.0; // conversion factor for 16-bit adc values
                                  //  adc2Voltage = 3.3/adc->getPGA()/adc->getMaxValue(); // conversion factor for adc values
                                  //  adc->adc0->analogReadDifferential(A10,A11); // call once to setup -> differential
-    adc->adc0->analogRead(A0); // call once to setup -> single-ended
+    adc->adc0->analogRead(pins.adc_EA); // call once to setup -> single-ended
     adc->enableInterrupts(ADC_0);
 
     Serial.print("adc2Voltage = ");
@@ -104,6 +119,7 @@ fsmState powerUp(void) {
     Alinfit.col(0) = VectorXd::Ones(nSamples);
     Alinfit.col(1) = VectorXd::LinSpaced(nSamples, 1 + adcDelay, nSamples + adcDelay);
     //  print_mtxf(Alinfit);
+
 
     Serial.println("\nInitialization Complete");
 
@@ -118,8 +134,8 @@ fsmState notRunning(void) {
 
     // ensure EA is disconnected
     disableREF200();
-    mux.selectA(pins.sw_nc);
-    mux.selectB(pins.sw_nc);
+    mux.selectA(pins.EA[0]);
+    mux.selectB(pins.EA[0]);
     mux.enable();
 
     // stop IntervalTimers
@@ -129,6 +145,7 @@ fsmState notRunning(void) {
     // reset counts
     pulseCount = 0;
     timerCount = 0;
+
 
     Serial.println("\nState: NotRunning\n");
 
@@ -152,6 +169,12 @@ fsmState notRunning(void) {
         //ch_anode = sw_test1;
         //ch_cathode = sw_test2;
     }
+
+    // reset zpair iterator and select first pair
+    current_zpair = zpairs.begin();
+    mux.selectA(current_zpair->first);
+    mux.selectB(current_zpair->second);
+
 
     runFlag = true;
 
@@ -219,11 +242,11 @@ fsmState pulseNegative(void) {
         }
     }
 
-    // start negative pulse (current from ch_cathode to ch_anode)
+    // start negative pulse (current from cathode to anode)
     disableREF200();
     mux.disable(); // avoids temporary short
-    mux.selectA(ch_cathode);
-    mux.selectB(ch_anode);
+    mux.selectA(current_zpair->second);
+    mux.selectB(current_zpair->first);
     mux.enable();
     enableREF200();
 
@@ -257,8 +280,8 @@ fsmState interPulse(void) {
 
     // short electrodes to bring anode/cathode to ground potential
     delayMicroseconds(10);
-    mux.selectA(ch_anode);
-    mux.selectB(ch_cathode);
+    mux.selectA(current_zpair->first);
+    mux.selectB(current_zpair->second);
     delayMicroseconds(5);
     digitalWriteFast(pins.short_EA, HIGH);
 
@@ -285,14 +308,6 @@ fsmState computeZ(void) {
     // reset pulse count
     pulseCount = 0;
 
-    // increment to next channel pair
-    ch_index++;
-    if (ch_index >= (size_EA - 1)) {
-        ch_index = 0; // 'roll-over' back to first pair
-    }
-    ch_anode = EA[ch_index];
-    ch_cathode = EA[ch_index + 1];
-
     // average together samples taken at same time during pulses (i.e. rows of adcRaw) and convert to voltage
     VectorXd adcMean(nSamples);
     adcMean = adc2Voltage * adcRaw.rowwise().mean().cast<double>();
@@ -318,12 +333,7 @@ fsmState computeZ(void) {
 
     // send results
     Serial.print(resistance);
-    if(ch_index == 0){
-    Serial.println(); // finished scan, back to first pair
-    }
-    else{
-    Serial.print(",");
-    }
+    Serial.print(current_zpair == zpairs.begin() ? "\n" : ",");
 
     //Serial.print(adcRaw(0, 0));
 
@@ -342,6 +352,17 @@ fsmState computeZ(void) {
     //    Serial.print(1000.0*adcMean(ii), 1);
     //}
     //Serial.println();
+
+
+    // increment to next channel pair
+    if (current_zpair < zpairs.end()) {
+        current_zpair++;
+    }
+    else {
+        current_zpair = zpairs.begin(); // reset to first pair
+    }
+    mux.selectA(current_zpair->first);
+    mux.selectB(current_zpair->second);
 
 
     digitalWriteFast(pins.aux1, LOW);
