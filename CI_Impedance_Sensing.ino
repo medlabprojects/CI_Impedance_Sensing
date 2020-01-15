@@ -37,7 +37,7 @@ volatile int timerCount = 0;
 IntervalTimer timerAdc;    // timer for triggering ADC samples
 const double adcTime = 8.5; // [us] time between each adc trigger
 const int nSamples = 5;    // number of ADC samples to take during positive pulse
-const int nPulses = 16;    // number of pulse trains which will be sampled and averaged together for each single output measurement
+const int nPulses = 32;    // number of pulse trains which will be sampled and averaged together for each single output measurement
 
 ADC *adc = new ADC(); // ADC object
 RingBuffer *adcRingBuffer = new RingBuffer; // buffer to capture adc samples (changed size in .h to 16 elements)
@@ -48,7 +48,7 @@ volatile int pulseCount = 0; // current pulse number (column index of adcRaw)
 bool adcFlag = false;
 double adc2Voltage = 0.0;
 
-MatrixXd Alinfit(nSamples, 2); // linear regression matrix for line fitting
+MatrixXf Alinfit(nSamples, 2); // linear regression matrix for line fitting
 double resistance = 0.0; // resistive component of measured impedance
 double capacitance = 0.0;// capacitive component of measured impedance
 
@@ -111,8 +111,8 @@ fsmState powerUp(void) {
     Serial.println(adc->adc0->getMaxValue());
 
     // set up linear regression matrix
-    Alinfit.col(0) = VectorXd::Ones(nSamples);
-    Alinfit.col(1) = VectorXd::LinSpaced(nSamples, 1, nSamples);
+    Alinfit.col(0) = VectorXf::Ones(nSamples);
+    Alinfit.col(1) = VectorXf::LinSpaced(nSamples, 1, nSamples);
     //  print_mtxf(Alinfit);
 
 
@@ -303,17 +303,17 @@ fsmState computeZ(void) {
     digitalWriteFast(pins.aux1, HIGH);
 
     // convert to voltages and average together samples taken at same time during pulses (i.e. rows of adcRaw)
-    MatrixXd rawVoltages(nSamples, nPulses);
-    rawVoltages = adc2Voltage * adcRaw.cast<double>();
+    MatrixXf rawVoltages(nSamples, nPulses);
+    rawVoltages = adc2Voltage * adcRaw;
 
-    VectorXd meanVoltages(nSamples);
+    VectorXf meanVoltages(nSamples);
     meanVoltages = rawVoltages.rowwise().mean();
 
     // compute variance
-    VectorXd varianceVoltages(nSamples);          // sample variances [volts]
-    MatrixXd dev_from_mean(nSamples, nPulses);    // sample deviations from the mean
-    MatrixXd sq_dev_from_mean(nSamples, nPulses); // squared deviations from the mean
-    const double inv_nSamples = 1.0 / (double)nSamples; // inverse of nSamples
+    VectorXf varianceVoltages(nSamples);          // sample variances [volts]
+    MatrixXf dev_from_mean(nSamples, nPulses);    // sample deviations from the mean
+    MatrixXf sq_dev_from_mean(nSamples, nPulses); // squared deviations from the mean
+    const float inv_nSamples = 1.0 / (float)nSamples; // inverse of nSamples
 
     dev_from_mean = rawVoltages.colwise() - meanVoltages;
     sq_dev_from_mean = dev_from_mean.cwiseProduct(dev_from_mean);
@@ -321,7 +321,7 @@ fsmState computeZ(void) {
 
 
     // fit least-squares line to data
-    Vector2d fit;
+    Vector2f fit;
     fit = Alinfit.colPivHouseholderQr().solve(meanVoltages);
 
     // compute resistive component (via intercept of fit)
