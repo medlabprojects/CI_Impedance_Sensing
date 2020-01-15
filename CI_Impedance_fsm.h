@@ -15,3 +15,7 @@ fsmState pulseNegative(void);
 fsmState interPulse(void);
 fsmState computeZ(void);
 fsmState stepStateMachine(fsmState next_state);
+
+// other functions
+void print_mtxf(const Eigen::MatrixXf& X, uint8_t precision = 2);
+void print_mtxf(const Eigen::MatrixXd& X, uint8_t precision = 2);

@@ -8,7 +8,8 @@
 #include <Eigen/Dense>
 //#include <SFE_MicroOLED.h>
 #include "ADG726.h"
-#include "CI_Impedance_pins.h"
+#include "CI_Impedance_pins_breadboard.h"
+//#include "CI_Impedance_pins.h"
 #include "CI_Impedance_fsm.h"
 
 using namespace Eigen;
@@ -18,20 +19,13 @@ ImpedanceSensingPins pins; // pin mappings
 ADG726 mux(pins.mux_pins); // mux object
 
 using ZPair = std::pair<uint8_t, uint8_t>; // pair of EA contacts (anode, cathode) to use for bipolar impedance measurement
-const std::array<ZPair, 2> zpairs = { {    // array of all pairs to test
-    {pins.EA[2], pins.EA[3]},
-    {pins.EA[3], pins.EA[5]}
-} };
+//const std::array<ZPair, 2> zpairs = { {    // array of all pairs to test
+//    {pins.EA[2], pins.EA[3]},
+//    {pins.EA[3], pins.EA[5]}
+//} };
+const std::array<ZPair, 1> zpairs = { { { pins.EA[2], pins.EA[3] } } };
 auto current_zpair = zpairs.begin(); // current pair being tested (iterator -> *current_zpair to access pair)
-//uint8_t zpair_index = 0; // current pair being tested = zpairs[zpair_index]
 
-//const uint8_t size_EA = 3;
-//const uint8_t EA[size_EA] = {sw_EA2, sw_EA3, sw_EA5};
-//const uint8_t size_EA = 2;
-//const uint8_t EA[size_EA] = { pins.sw_EA2, pins.sw_EA3 };
-//uint8_t ch_index = 0;                  // currently selected channels to measure
-//uint8_t ch_anode = EA[ch_index];       // anode channel during initial positive pulse
-//uint8_t ch_cathode = EA[ch_index + 1]; // cathode channel during inital positive pulse
 
 IntervalTimer timerPulse;
 //const int pulse_time = 100; // [us] time for each current pulse (+/-); total time for biphasic pulse is 2*pulse_time
@@ -41,12 +35,9 @@ volatile bool timerFlag = false;
 volatile int timerCount = 0;
 
 IntervalTimer timerAdc;    // timer for triggering ADC samples
-const float adcTime = 8.5; // [us] time between each adc trigger
-const int adcDelay = 0;    // number of adc samples to discard before saving (while waiting to current pulse to stabalize)
+const double adcTime = 8.5; // [us] time between each adc trigger
 const int nSamples = 5;    // number of ADC samples to take during positive pulse
-const int nPulses = 32;    // number of pulse trains which will be sampled and averaged together for each single output measurement
-//const float filterSigma = 2.5; // samples more than this many std deviations from the mean will be filtered out
-//const float filterVariance = filterSigma * filterSigma; // variance is actually used since it is faster to compute 
+const int nPulses = 16;    // number of pulse trains which will be sampled and averaged together for each single output measurement
 
 ADC *adc = new ADC(); // ADC object
 RingBuffer *adcRingBuffer = new RingBuffer; // buffer to capture adc samples (changed size in .h to 16 elements)
@@ -60,6 +51,10 @@ double adc2Voltage = 0.0;
 MatrixXd Alinfit(nSamples, 2); // linear regression matrix for line fitting
 double resistance = 0.0; // resistive component of measured impedance
 double capacitance = 0.0;// capacitive component of measured impedance
+
+const float filter_sigma = 2.5; // samples more than this many std deviations from the mean will be filtered out
+const float filter_variance = filter_sigma * filter_sigma; // variance is actually used since it is faster to compute 
+volatile bool bad_sample = false;
 
 volatile bool runFlag = false;
 
@@ -117,7 +112,7 @@ fsmState powerUp(void) {
 
     // set up linear regression matrix
     Alinfit.col(0) = VectorXd::Ones(nSamples);
-    Alinfit.col(1) = VectorXd::LinSpaced(nSamples, 1 + adcDelay, nSamples + adcDelay);
+    Alinfit.col(1) = VectorXd::LinSpaced(nSamples, 1, nSamples);
     //  print_mtxf(Alinfit);
 
 
@@ -220,27 +215,10 @@ fsmState pulseNegative(void) {
     stateCurrent = statePulseNegative;
 
     // wait for positive pulse to finish
-    while (timerCount < 2) {
-        // store adc samples
-        if (!adcRingBuffer->isEmpty()) {
-            adcCount++; // increment count
-
-            if (adcCount >= (nSamples + adcDelay)) {
-                timerAdc.end(); // halt triggering
-            }
-
-            noInterrupts(); // ensure ring buffer isn't modified during read
-                            //      int adcLast = adcRingBuffer->read(); // read sample from buffer
-            int adcLast = adcRingBuffer->read(); // read sample from buffer
-            interrupts();
-
-            if (adcCount > adcDelay) {
-                //        digitalWriteFast(pins.aux2, HIGH);
-                adcRaw(adcCount - adcDelay - 1, pulseCount) = adcLast; // store
-                                                                       //        digitalWriteFast(pins.aux2, LOW);
-            }
-        }
-    }
+    while (timerCount < 2);
+    
+    // halt triggering
+    timerAdc.end(); 
 
     // start negative pulse (current from cathode to anode)
     disableREF200();
@@ -250,14 +228,25 @@ fsmState pulseNegative(void) {
     mux.enable();
     enableREF200();
 
-    // ensure ADC triggering has been stopped
-    timerAdc.end();
+    // store adc samples
+    while (!adcRingBuffer->isEmpty()) 
+    {
+        noInterrupts(); // ensure ring buffer isn't modified during read
+        int adcLast = adcRingBuffer->read(); // read sample from buffer
+        interrupts();
 
-    // ensure buffer is cleared
-    while (!adcRingBuffer->isEmpty()) {
-        //    digitalWriteFast(pins.aux2, HIGH);
-        adcRingBuffer->read();
-        //    digitalWriteFast(pins.aux2, LOW);
+        if (adcCount < nSamples) {
+            // check for bad sample
+            if (adcLast < 100) {
+                digitalWriteFast(pins.aux2, HIGH);
+                bad_sample = true;
+                digitalWriteFast(pins.aux2, LOW);
+            }
+
+            adcRaw(adcCount, pulseCount) = adcLast; // store
+
+            adcCount++; // increment count
+        }
     }
 
     // increment pulse count
@@ -300,44 +289,86 @@ fsmState interPulse(void) {
 fsmState computeZ(void) {
     stateCurrent = stateComputeZ;
 
-    digitalWriteFast(pins.aux1, HIGH);
-
-    // stop IntervalTimer
+    // stop timers
     timerPulse.end();
+    timerAdc.end();
+
 
     // reset pulse count
     pulseCount = 0;
 
-    // average together samples taken at same time during pulses (i.e. rows of adcRaw) and convert to voltage
-    VectorXd adcMean(nSamples);
-    adcMean = adc2Voltage * adcRaw.rowwise().mean().cast<double>();
 
-    // stop ADC triggering and empty buffer
-    timerAdc.end();
-    while (!adcRingBuffer->isEmpty()) {
-        adcRingBuffer->read();
-    }
+
+
+    digitalWriteFast(pins.aux1, HIGH);
+
+    // convert to voltages and average together samples taken at same time during pulses (i.e. rows of adcRaw)
+    MatrixXd rawVoltages(nSamples, nPulses);
+    rawVoltages = adc2Voltage * adcRaw.cast<double>();
+
+    VectorXd meanVoltages(nSamples);
+    meanVoltages = rawVoltages.rowwise().mean();
+
+    // compute variance
+    VectorXd varianceVoltages(nSamples);          // sample variances [volts]
+    MatrixXd dev_from_mean(nSamples, nPulses);    // sample deviations from the mean
+    MatrixXd sq_dev_from_mean(nSamples, nPulses); // squared deviations from the mean
+    const double inv_nSamples = 1.0 / (double)nSamples; // inverse of nSamples
+
+    dev_from_mean = rawVoltages.colwise() - meanVoltages;
+    sq_dev_from_mean = dev_from_mean.cwiseProduct(dev_from_mean);
+    varianceVoltages = inv_nSamples * sq_dev_from_mean.rowwise().sum();
+
 
     // fit least-squares line to data
     Vector2d fit;
-    fit = Alinfit.colPivHouseholderQr().solve(adcMean);
+    fit = Alinfit.colPivHouseholderQr().solve(meanVoltages);
 
     // compute resistive component (via intercept of fit)
     // I = 100E-6 [A] ==> 1/I = 1E4 [A]
     resistance = fit(0) * 1.0E4;
 
+
     // compute capacitive component (via slope of fit)
     // C[nF] = (0.1[ma] * adcTime[us/sample]) / (slope[V/sample])
-    capacitance = 0.1 * (double)adcTime / fit(1);
+    capacitance = 0.1 * adcTime / fit(1);
+
+    digitalWriteFast(pins.aux1, LOW);
+
+
+    // check is there were outliers
+    if (bad_sample)
+        {
+        // print means
+        Serial.print("\nm");
+        for (int ii = 0; ii<nSamples; ii++) {
+            Serial.print(", ");
+            Serial.print(1000.0*meanVoltages(ii), 2);
+        }
+        Serial.println();
+
+        // print variances
+        Serial.print("v");
+        for (int ii = 0; ii<nSamples; ii++) {
+            Serial.print(", ");
+            Serial.print(1000.0*varianceVoltages(ii), 3);
+        }
+        Serial.println();
+
+        // print raw data
+        MatrixXf adcRawTpose(nPulses, nSamples);
+        adcRawTpose = adcRaw.transpose();
+        print_mtxf(adcRawTpose,0);
+
+        bad_sample = false; // reset flag
+    }
 
 
     // send results
     Serial.print(resistance);
-    Serial.print(current_zpair == zpairs.begin() ? "\n" : ",");
 
     //Serial.print(adcRaw(0, 0));
 
-    //  Serial.print(static_cast<uint32_t>(adcRaw(0,0)));
     //  Serial.print(resistance);
     //  Serial.print(",");
     //  if ((capacitance > 500)||(capacitance<0)) {
@@ -353,19 +384,16 @@ fsmState computeZ(void) {
     //}
     //Serial.println();
 
-
     // increment to next channel pair
-    if (current_zpair < zpairs.end()) {
-        current_zpair++;
+    if (++current_zpair < zpairs.end()) {
+        Serial.print(","); 
     }
     else {
+        Serial.print("\n");
         current_zpair = zpairs.begin(); // reset to first pair
     }
     mux.selectA(current_zpair->first);
     mux.selectB(current_zpair->second);
-
-
-    digitalWriteFast(pins.aux1, LOW);
 
     // begin next pulse train
     return statePulsePositive;
@@ -467,7 +495,7 @@ void disableREF200(void) {
 // PRINT MATRIX (float type)
 // By: randomvibe
 //-----------------------------
-void print_mtxf(const Eigen::MatrixXf& X)
+void print_mtxf(const Eigen::MatrixXf& X, uint8_t precision = 2)
 {
     int i, j, nrow, ncol;
 
@@ -482,7 +510,7 @@ void print_mtxf(const Eigen::MatrixXf& X)
     {
         for (j = 0; j<ncol; j++)
         {
-            Serial.print(X(i, j), 6);   // print 6 decimal places
+            Serial.print(X(i, j), precision);   // print 6 decimal places
             Serial.print(", ");
         }
         Serial.println();
@@ -493,7 +521,7 @@ void print_mtxf(const Eigen::MatrixXf& X)
 // PRINT MATRIX (double type)
 // By: randomvibe
 //-----------------------------
-void print_mtxf(const Eigen::MatrixXd& X)
+void print_mtxf(const Eigen::MatrixXd& X, uint8_t precision = 2)
 {
     int i, j, nrow, ncol;
 
@@ -508,7 +536,7 @@ void print_mtxf(const Eigen::MatrixXd& X)
     {
         for (j = 0; j<ncol; j++)
         {
-            Serial.print(X(i, j), 6);   // print 6 decimal places
+            Serial.print(X(i, j), precision);   // print 6 decimal places
             Serial.print(", ");
         }
         Serial.println();

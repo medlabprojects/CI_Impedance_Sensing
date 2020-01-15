@@ -16,7 +16,7 @@ public:
 
         pinMode(short_EA, OUTPUT);
         digitalWriteFast(short_EA, HIGH);
-        
+
 
         // ADCs
         pinMode(adc_batt, INPUT);
@@ -27,7 +27,7 @@ public:
         digitalWriteFast(test_batt, LOW);
 
         pinMode(led_low_batt, OUTPUT);
-        digitalWriteFast(led_low_batt, LOW);  
+        digitalWriteFast(led_low_batt, LOW);
 
         pinMode(led_status, OUTPUT);
         digitalWriteFast(led_status, LOW);
@@ -57,17 +57,10 @@ public:
         const uint8_t WR = 1;
         const uint8_t EN = 0;
     } mux;
-    const std::array<uint8_t, 8> mux_pins = {{ mux.A0, mux.A1, mux.A2, mux.A3, mux.CSA, mux.CSB, mux.WR, mux.EN }};
+    const std::array<uint8_t, 8> mux_pins = { { mux.A0, mux.A1, mux.A2, mux.A3, mux.CSA, mux.CSB, mux.WR, mux.EN } };
 
     // EA <-> MUX switch connections (NOTE: EA[1] = EA1; EA[0] is not connected)
-    std::array<uint8_t, 13> EA = { { 255, 1, 14, 15, 1, 16, 1, 1, 1, 1, 1, 1, 1 } };
-    //std::array<uint8_t, 12> EA = { { 255, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } };
-    
-    //const uint8_t sw_EA2 = 14; // pins 38/47  
-    //const uint8_t sw_EA3 = 15; // pins 39/46
-    //const uint8_t sw_EA5 = 16; // pins 40/45
-    //const uint8_t sw_nc = 12;  // pins 1/36; unconnected
-    //const uint8_t swB_gnd = 6;   // pin 30; connected to ground
+    std::array<uint8_t, 12> EA = { { 255, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } };
 
     // pulse control
     const uint8_t ref200_EN = 9; // HIGH to connect REF200
