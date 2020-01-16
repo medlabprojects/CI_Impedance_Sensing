@@ -19,10 +19,17 @@ ImpedanceSensingPins pins; // pin mappings
 ADG726 mux(pins.mux_pins); // mux object
 
 using ZPair = std::pair<uint8_t, uint8_t>; // pair of EA contacts (anode, cathode) to use for bipolar impedance measurement
-const std::array<ZPair, 2> zpairs = { {    // array of all pairs to test
-    {pins.EA[2], pins.EA[3]},
-    {pins.EA[3], pins.EA[5]}
-} };
+const std::array<ZPair, 5> zpairs = { {    // array of all pairs to test
+    { pins.EA[1], pins.EA[2] },
+    { pins.EA[2], pins.EA[3] },
+    { pins.EA[3], pins.EA[4] },
+    { pins.EA[4], pins.EA[5] },
+    { pins.EA[5], pins.EA[6] }
+    } };
+//const std::array<ZPair, 2> zpairs = { {    // array of all pairs to test
+//    {pins.EA[2], pins.EA[3]},
+//    {pins.EA[3], pins.EA[5]}
+//} };
 //const std::array<ZPair, 1> zpairs = { { { pins.EA[2], pins.EA[3] } } };
 auto current_zpair = zpairs.begin(); // current pair being tested (iterator -> *current_zpair to access pair)
 
@@ -36,7 +43,7 @@ volatile int timerCount = 0;
 IntervalTimer timerAdc;    // timer for triggering ADC samples
 const float adcTime = 8.5; // [us] time between each adc trigger
 const int nSamples = 5;    // number of ADC samples to take during positive pulse
-const int nPulses = 32;    // number of pulse trains which will be sampled and averaged together for each single output measurement
+const int nPulses = 16;    // number of pulse trains which will be sampled and averaged together for each single output measurement
 
 ADC *adc = new ADC(); // ADC object
 RingBuffer *adcRingBuffer = new RingBuffer; // buffer to capture adc samples (changed size in .h to 16 elements)
@@ -50,7 +57,7 @@ MatrixXf Alinfit(nSamples, 2); // linear regression matrix for line fitting
 double resistance = 0.0; // resistive component of measured impedance
 double capacitance = 0.0;// capacitive component of measured impedance
 
-const float filter_sigma = 2.5; // samples more than this many std deviations from the mean will be filtered out
+const float filter_sigma = 4.0; // samples more than this many std deviations from the mean will be filtered out
 const float filter_variance = filter_sigma * filter_sigma; // variance is actually used since it is faster to compute 
 volatile bool bad_sample = false;
 
@@ -196,7 +203,7 @@ fsmState pulsePositive(void) {
     timerPulse.begin(timerPulse_isr, pulse_time);
 
     // stop shorting
-    delayMicroseconds(pulse_time - 12); // wait until just before start of pulse
+    delayMicroseconds(pulse_time - 20); // wait until just before start of pulse
     digitalWriteFast(pins.short_EA, LOW);
 
     // wait for first pulse to sync up timing
@@ -207,8 +214,6 @@ fsmState pulsePositive(void) {
     enableREF200(); // turn on current source
     
     digitalWriteFast(pins.aux2, HIGH);
-
-    //delayMicroseconds(adcTime - 4.0);
 
     // start triggering ADC
     // takes around (1.6 + adcTime + 2.4) [us] to set up IntervalTimer,  wait for first trigger, and start first adc measurement
@@ -380,10 +385,10 @@ fsmState computeZ(void) {
     Serial.print(resistance);
 
 
-    for (int ii = 0; ii<nSamples; ii++) {
-        Serial.print(" ,");
-        Serial.print(1000.0* meanVoltages(ii), 1);
-    }
+    //for (int ii = 0; ii<nSamples; ii++) {
+    //    Serial.print(" ,");
+    //    Serial.print(1000.0* meanVoltages(ii), 1);
+    //}
 
     //  Serial.print(resistance);
     //  Serial.print(",");
