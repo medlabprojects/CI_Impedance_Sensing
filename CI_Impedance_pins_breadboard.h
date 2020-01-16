@@ -78,8 +78,7 @@ public:
     //const uint8_t oled_reset = 15;
 
     // ADC
-    //const uint8_t adc_batt = A0; // pin 14
-    const uint8_t adc_EA = A4;   // pin 18
+    const uint8_t adc_EA = A0;   // pin 14
 
     //const uint8_t test_batt = 16; // HIGH to enable battery monitor circuitry
     //const uint8_t led_low_batt = 19;

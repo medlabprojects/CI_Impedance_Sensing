@@ -42,8 +42,6 @@ public:
         digitalWriteFast(aux2, LOW);
 
         pinMode(buttonPin, INPUT_PULLUP); // button is pulled high when open, grounded when pressed
-
-
     }
 
     // MUX
@@ -60,7 +58,7 @@ public:
     const std::array<uint8_t, 8> mux_pins = { { mux.A0, mux.A1, mux.A2, mux.A3, mux.CSA, mux.CSB, mux.WR, mux.EN } };
 
     // EA <-> MUX switch connections (NOTE: EA[1] = EA1; EA[0] is not connected)
-    std::array<uint8_t, 12> EA = { { 255, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } };
+    std::array<uint8_t, 13> EA = { { 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } };
 
     // pulse control
     const uint8_t ref200_EN = 9; // HIGH to connect REF200
@@ -72,7 +70,7 @@ public:
     const uint8_t oled_reset = 15;
 
     // ADC
-    const uint8_t adc_batt = A0; // pin 14
+    const uint8_t adc_batt = A3; // pin 14
     const uint8_t adc_EA = A4;   // pin 18
 
     const uint8_t test_batt = 16; // HIGH to enable battery monitor circuitry
