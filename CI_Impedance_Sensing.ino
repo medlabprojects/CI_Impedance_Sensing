@@ -6,7 +6,8 @@
 #include <IntervalTimer.h>
 #include <Eigen.h>
 #include <Eigen/Dense>
-//#include <SFE_MicroOLED.h>
+#include <SPI.h>
+#include <SFE_MicroOLED.h>
 #include "ADG726.h"
 //#include "CI_Impedance_pins_breadboard.h"
 #include "CI_Impedance_pins.h"
@@ -18,18 +19,20 @@ ImpedanceSensingPins pins; // pin mappings
 
 ADG726 mux(pins.mux_pins); // mux object
 
+MicroOLED oled(pins.oled_reset, pins.oled_dc, pins.oled_cs); // OLED display
+
 using ZPair = std::pair<uint8_t, uint8_t>; // pair of EA contacts (anode, cathode) to use for bipolar impedance measurement
-const std::array<ZPair, 5> zpairs = { {    // array of all pairs to test
-    { pins.EA[1], pins.EA[2] },
-    { pins.EA[2], pins.EA[3] },
-    { pins.EA[3], pins.EA[4] },
-    { pins.EA[4], pins.EA[5] },
-    { pins.EA[5], pins.EA[6] }
-    } };
-//const std::array<ZPair, 2> zpairs = { {    // array of all pairs to test
-//    {pins.EA[2], pins.EA[3]},
-//    {pins.EA[3], pins.EA[5]}
-//} };
+//const std::array<ZPair, 5> zpairs = { {    // array of all pairs to test
+//    { pins.EA[1], pins.EA[2] },
+//    { pins.EA[2], pins.EA[3] },
+//    { pins.EA[3], pins.EA[4] },
+//    { pins.EA[4], pins.EA[5] },
+//    { pins.EA[5], pins.EA[6] }
+//    } };
+const std::array<ZPair, 2> zpairs = { {    // array of all pairs to test
+    {pins.EA[1], pins.EA[2]},
+    {pins.EA[2], pins.EA[3]}
+} };
 //const std::array<ZPair, 1> zpairs = { { { pins.EA[2], pins.EA[3] } } };
 auto current_zpair = zpairs.begin(); // current pair being tested (iterator -> *current_zpair to access pair)
 
@@ -52,10 +55,10 @@ volatile int adcCount = 0; // current sample number (row index of adcRaw)
 volatile int pulseCount = 0; // current pulse number (column index of adcRaw)
 bool adcFlag = false;
 double adc2Voltage = 0.0;
+const double battery_voltage_factor = 3.0; // R6=300, R7 = 150; Vbatt = Vadc*(R1+R2)/R2
+const double low_battery_threshold = 7.0;  // [V]
 
 MatrixXf Alinfit(nSamples, 2); // linear regression matrix for line fitting
-double resistance = 0.0; // resistive component of measured impedance
-double capacitance = 0.0;// capacitive component of measured impedance
 
 const float filter_sigma = 4.0; // samples more than this many std deviations from the mean will be filtered out
 const float filter_variance = filter_sigma * filter_sigma; // variance is actually used since it is faster to compute 
@@ -100,15 +103,43 @@ fsmState powerUp(void) {
     //print_mtxf(Alinfit);
 
 
-    //  setup ADC
+    //  setup ADC and check battery voltage
     adc->setAveraging(0); // no averaging; take single samples
     adc->setResolution(16); // resolution
     adc->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED_16BITS); // sets ADCK to highest speed within spec for all resolutions
     adc->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED);            // HIGH_SPEED adds +6 ADCK; MED_SPEED adds +10 ADCK
     adc->setReference(ADC_REFERENCE::REF_3V3, ADC_0);                 // use 3.3V internal reference
     adc2Voltage = 3.3 / adc->adc0->getMaxValue();                     // conversion factor from adc counts to voltage
+
+    digitalWriteFast(pins.test_batt, HIGH);
+    delay(5); // give time for circuitry to stabalize
+    int adc_battery = adc->analogRead(pins.adc_batt);
+    digitalWriteFast(pins.test_batt, LOW);
+    double battery_voltage = adc_battery * adc2Voltage * battery_voltage_factor;
+    Serial.print("Battery Voltage = ");
+    Serial.print(battery_voltage);
+    Serial.println(" V");
+    digitalWriteFast(pins.led_low_batt, battery_voltage<low_battery_threshold);
+
     adc->adc0->analogRead(pins.adc_EA);                               // call once to setup
     adc->enableInterrupts(ADC_0);
+
+    // oled display
+    oled.begin();     // Initialize the OLED
+    oled.clear(PAGE); // Clear the display's internal memory
+    oled.display();
+    delay(10);
+    oled.setFontType(0);
+    oled.setCursor(2, 9);
+    oled.print("Impedance");
+    oled.setCursor(10, 17);
+    oled.print(" Sensing");
+    oled.setCursor(0, 40);
+    oled.print("batt=");
+    oled.print(battery_voltage, 2);
+    oled.print("V");
+    oled.display(); 
+
 
     Serial.print("adc2Voltage = ");
     Serial.println(adc2Voltage, 10);
@@ -181,6 +212,7 @@ fsmState notRunning(void) {
     mux.selectA(current_zpair->first);
     mux.selectB(current_zpair->second);
 
+    oled.setCursor(0, 0);
 
     runFlag = true;
 
@@ -306,6 +338,9 @@ fsmState interPulse(void) {
 fsmState computeZ(void) {
     stateCurrent = stateComputeZ;
 
+    double resistance = 0.0; // resistive component of measured impedance
+    double capacitance = 0.0;// capacitive component of measured impedance
+
     // stop timers
     timerPulse.end();
     timerAdc.end();
@@ -383,7 +418,7 @@ fsmState computeZ(void) {
 
     // send results
     Serial.print(resistance);
-
+    oled.println(resistance, 0);
 
     //for (int ii = 0; ii<nSamples; ii++) {
     //    Serial.print(" ,");
@@ -413,6 +448,10 @@ fsmState computeZ(void) {
         Serial.print("\n");
         current_zpair = zpairs.begin(); // reset to first pair
         Serial.send_now(); // ensure data is sent now and not buffered
+
+        oled.display();
+        oled.clear(PAGE);
+        oled.setCursor(0, 0);
     }
 
     mux.selectA(current_zpair->first);

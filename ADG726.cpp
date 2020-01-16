@@ -9,8 +9,7 @@ ADG726::ADG726(const std::array<uint8_t,4> ADDR, const uint8_t CSA, const uint8_
 	, CSB_(CSB)
 	, WR_(WR)
 	, EN_(EN)
-{	
-}
+{}
 
 ADG726::ADG726(const std::array<uint8_t,8> pins)
   : ADDR_({pins.at(0), pins.at(1), pins.at(2), pins.at(3)})

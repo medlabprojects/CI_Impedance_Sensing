@@ -2,11 +2,15 @@
 
 #include <stdint.h>
 #include <array>
+#include <SPI.h>
+#include <SFE_MicroOLED.h>
 
 class ImpedanceSensingPins
 {
 public:
-    ImpedanceSensingPins(void) {};
+    ImpedanceSensingPins(void) 
+        //: oled(oled_reset, oled_dc, oled_cs)
+    {};
 
     void init(void)
     {
@@ -42,6 +46,14 @@ public:
         digitalWriteFast(aux2, LOW);
 
         pinMode(buttonPin, INPUT_PULLUP); // button is pulled high when open, grounded when pressed
+
+        //oled.begin();    // Initialize the OLED
+        //oled.clear(ALL); // Clear the display's internal memory
+        //oled.setFontType(0);
+        //oled.setCursor(0, 16);
+        //oled.println("Impedance");
+        //oled.print(" Sensing");
+        //oled.display();  // Display what's in the buffer (splashscreen)
     }
 
     // MUX
@@ -65,9 +77,11 @@ public:
     const uint8_t short_EA = 8;  // HIGH -> shorts DA-DB
 
     // OLED display (SPI)
+    //MicroOLED oled;
     const uint8_t oled_cs = 10;
     const uint8_t oled_dc = 14;
     const uint8_t oled_reset = 15;
+
 
     // ADC
     const uint8_t adc_batt = A3; // pin 14
