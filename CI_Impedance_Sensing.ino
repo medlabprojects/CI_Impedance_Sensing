@@ -22,17 +22,29 @@ ADG726 mux(pins.mux_pins); // mux object
 MicroOLED oled(pins.oled_reset, pins.oled_dc, pins.oled_cs); // OLED display
 
 using ZPair = std::pair<uint8_t, uint8_t>; // pair of EA contacts (anode, cathode) to use for bipolar impedance measurement
-//const std::array<ZPair, 5> zpairs = { {    // array of all pairs to test
-//    { pins.EA[1], pins.EA[2] },
-//    { pins.EA[2], pins.EA[3] },
-//    { pins.EA[3], pins.EA[4] },
-//    { pins.EA[4], pins.EA[5] },
-//    { pins.EA[5], pins.EA[6] }
+//const std::array<ZPair, 12> zpairs = { {    // array of all pairs to test
+//    { pins.EA[1],  pins.EA[2] },
+//    { pins.EA[2],  pins.EA[3] },
+//    { pins.EA[3],  pins.EA[4] },
+//    { pins.EA[4],  pins.EA[5] },
+//    { pins.EA[5],  pins.EA[6] },
+//    { pins.EA[6],  pins.EA[7] },
+//    { pins.EA[7],  pins.EA[8] },
+//    { pins.EA[8],  pins.EA[9] },
+//    { pins.EA[9],  pins.EA[10] },
+//    { pins.EA[10], pins.EA[11] },
+//    { pins.EA[11], pins.EA[12] },
 //    } };
-const std::array<ZPair, 2> zpairs = { {    // array of all pairs to test
-    {pins.EA[1], pins.EA[2]},
-    {pins.EA[2], pins.EA[3]}
-} };
+const std::array<ZPair, 4> zpairs = { {    // array of all pairs to test
+    { pins.EA[1], pins.EA[2] },
+    { pins.EA[2], pins.EA[3] },
+    { pins.EA[3], pins.EA[4] },
+    { pins.EA[4], pins.EA[5] }
+    } };
+//const std::array<ZPair, 2> zpairs = { {    // array of all pairs to test
+//    {pins.EA[1], pins.EA[2]},
+//    {pins.EA[2], pins.EA[3]}
+//} };
 //const std::array<ZPair, 1> zpairs = { { { pins.EA[2], pins.EA[3] } } };
 auto current_zpair = zpairs.begin(); // current pair being tested (iterator -> *current_zpair to access pair)
 
@@ -46,7 +58,7 @@ volatile int timerCount = 0;
 IntervalTimer timerAdc;    // timer for triggering ADC samples
 const float adcTime = 8.5; // [us] time between each adc trigger
 const int nSamples = 5;    // number of ADC samples to take during positive pulse
-const int nPulses = 16;    // number of pulse trains which will be sampled and averaged together for each single output measurement
+const int nPulses = 20;    // number of pulse trains which will be sampled and averaged together for each single output measurement
 
 ADC *adc = new ADC(); // ADC object
 RingBuffer *adcRingBuffer = new RingBuffer; // buffer to capture adc samples (changed size in .h to 16 elements)
@@ -247,6 +259,8 @@ fsmState pulsePositive(void) {
     
     digitalWriteFast(pins.aux2, HIGH);
 
+    delayMicroseconds(1);
+
     // start triggering ADC
     // takes around (1.6 + adcTime + 2.4) [us] to set up IntervalTimer,  wait for first trigger, and start first adc measurement
     timerAdc.begin(timerAdc_isr, adcTime);
@@ -317,10 +331,10 @@ fsmState interPulse(void) {
     disableREF200();
 
     // short electrodes to bring anode/cathode to ground potential
-    delayMicroseconds(10);
+    delayMicroseconds(2);
     mux.selectA(current_zpair->first);
     mux.selectB(current_zpair->second);
-    delayMicroseconds(5);
+    delayMicroseconds(2);
     digitalWriteFast(pins.short_EA, HIGH);
 
     // check whether this is the last pulse
@@ -418,7 +432,7 @@ fsmState computeZ(void) {
 
     // send results
     Serial.print(resistance);
-    oled.println(resistance, 0);
+    //oled.println(resistance, 0);
 
     //for (int ii = 0; ii<nSamples; ii++) {
     //    Serial.print(" ,");
@@ -449,9 +463,9 @@ fsmState computeZ(void) {
         current_zpair = zpairs.begin(); // reset to first pair
         Serial.send_now(); // ensure data is sent now and not buffered
 
-        oled.display();
-        oled.clear(PAGE);
-        oled.setCursor(0, 0);
+        //oled.display();
+        //oled.clear(PAGE);
+        //oled.setCursor(0, 0);
     }
 
     mux.selectA(current_zpair->first);
