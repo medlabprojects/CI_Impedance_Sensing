@@ -456,7 +456,7 @@ fsmState computeZ(void) {
 
     // increment to next channel pair
     if (++current_zpair < zpairs.end()) {
-        Serial.print(","); 
+        Serial.print(", "); 
     }
     else {
         Serial.print("\n");
